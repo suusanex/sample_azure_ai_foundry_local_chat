@@ -1,0 +1,10 @@
+﻿{
+    "profiles": {
+      "sample_azure_ai_foundry_local_chat (Package)": {
+        "commandName": "MsixPackage"
+      },
+      "sample_azure_ai_foundry_local_chat (Unpackaged)": {
+        "commandName": "Project"
+      }
+    }
+}
