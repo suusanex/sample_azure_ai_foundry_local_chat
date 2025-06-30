@@ -1,0 +1,2 @@
+# sample_azure_ai_foundry_local_chat
+Azure AI Foundry Localを使ってチャットをするだけのサンプル。SDKの使用方法のサンプルと、複数行のプロンプトなどを渡しやすい（CLIではない）UIの付いた便利ツール、を兼ねる。
