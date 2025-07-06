@@ -1,7 +1,8 @@
-﻿using Microsoft.Extensions.DependencyInjection;
+﻿using Microsoft.Extensions.Configuration;
+using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using Microsoft.UI.Xaml;
-
+using Microsoft.UI.Xaml.Controls;
 using sample_azure_ai_foundry_local_chat.Activation;
 using sample_azure_ai_foundry_local_chat.Contracts.Services;
 using sample_azure_ai_foundry_local_chat.Core.Contracts.Services;
@@ -26,10 +27,10 @@ public partial class App : Application
         get;
     }
 
-    public static T GetService<T>()
+    public static T GetRequiredService<T>()
         where T : class
     {
-        if ((App.Current as App)!.Host.Services.GetService(typeof(T)) is not T service)
+        if ((App.Current as App)!.Host.Services.GetRequiredService(typeof(T)) is not T service)
         {
             throw new ArgumentException($"{typeof(T)} needs to be registered in ConfigureServices within App.xaml.cs.");
         }
@@ -48,6 +49,10 @@ public partial class App : Application
         Host = Microsoft.Extensions.Hosting.Host.
         CreateDefaultBuilder().
         UseContentRoot(AppContext.BaseDirectory).
+        ConfigureAppConfiguration((context, config) =>
+        {
+            config.AddJsonFile("appsettings.json", optional: true, reloadOnChange: true);
+        }).
         ConfigureServices((context, services) =>
         {
             // Default Activation Handler
@@ -66,24 +71,32 @@ public partial class App : Application
             // Views and ViewModels
             services.AddTransient<MainViewModel>();
             services.AddTransient<MainPage>();
+            // ChatModel DI登録
+            services.AddSingleton<sample_azure_ai_foundry_local_chat.Models.ChatModel>();
 
-            // Configuration
         }).
         Build();
 
         UnhandledException += App_UnhandledException;
     }
 
-    private void App_UnhandledException(object sender, Microsoft.UI.Xaml.UnhandledExceptionEventArgs e)
+    private async void App_UnhandledException(object sender, Microsoft.UI.Xaml.UnhandledExceptionEventArgs e)
     {
-        // TODO: Log and handle exceptions as appropriate.
-        // https://docs.microsoft.com/windows/windows-app-sdk/api/winrt/microsoft.ui.xaml.application.unhandledexception.
+        e.Handled = true;
+        var dlg = new ContentDialog
+        {
+            Title = "Unhandled Exception",
+            Content = e.Exception.ToString(),
+            PrimaryButtonText = "Close"
+        };
+        await dlg.ShowAsync();
+
     }
 
     protected async override void OnLaunched(LaunchActivatedEventArgs args)
     {
         base.OnLaunched(args);
 
-        await App.GetService<IActivationService>().ActivateAsync(args);
+        await App.GetRequiredService<IActivationService>().ActivateAsync(args);
     }
 }
