@@ -22,6 +22,16 @@ public sealed partial class MainWindow : WindowEx
         dispatcherQueue = Microsoft.UI.Dispatching.DispatcherQueue.GetForCurrentThread();
         settings = new UISettings();
         settings.ColorValuesChanged += Settings_ColorValuesChanged; // cannot use FrameworkElement.ActualThemeChanged event
+
+        this.Closed += MainWindow_Closed;
+    }
+
+    private async void MainWindow_Closed(object? sender, object e)
+    {
+        // アプリ終了前にFoundryサービスをリスタート
+        // 回答が終わっていてもFoundryLocalのサービスがGPU等を使用し続ける場合があり、サービス再起動で確実にこれを止められるため。
+        var chatModel = App.GetRequiredService<Models.ChatModel>();
+        await chatModel.RestartFoundryServiceAsync();
     }
 
     // this handles updating the caption button colors correctly when indows system theme is changed
