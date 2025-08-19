@@ -8,6 +8,7 @@ using Microsoft.SemanticKernel;
 using Microsoft.SemanticKernel.Connectors.OpenAI;
 using Microsoft.SemanticKernel.ChatCompletion;
 using Microsoft.Extensions.Configuration;
+using System.Net.Http;
 
 namespace sample_azure_ai_foundry_local_chat.Models
 {
@@ -32,10 +33,18 @@ namespace sample_azure_ai_foundry_local_chat.Models
 
         private readonly IConfiguration configuration;
         private ChatHistory _history = new ChatHistory();
+        private readonly HttpClient _httpClient; // Reused HttpClient for the app lifetime
 
         public ChatModel(IConfiguration configuration)
         {
             this.configuration = configuration;
+
+            // Initialize a single HttpClient instance to be reused
+            var requestTimeoutSeconds = configuration.GetValue<int>("OpenAI:RequestTimeoutSeconds", 0);
+            _httpClient = new HttpClient
+            {
+                Timeout = requestTimeoutSeconds > 0 ? TimeSpan.FromSeconds(requestTimeoutSeconds) : Timeout.InfiniteTimeSpan
+            };
         }
 
         private async Task EnsureManagerInitializedAsync()
@@ -81,7 +90,9 @@ namespace sample_azure_ai_foundry_local_chat.Models
                 }
                 ProgressChanged?.Invoke("Download complete. Loading model...");
             }
-            var model = await _manager.LoadModelAsync(modelId, TimeSpan.FromSeconds(60), CancellationToken.None);
+            // Extend load timeout (configurable)
+            var loadTimeoutSeconds = configuration.GetValue<int>("Foundry:LoadModelTimeoutSeconds", 600);
+            var model = await _manager.LoadModelAsync(modelId, TimeSpan.FromSeconds(loadTimeoutSeconds), CancellationToken.None);
             ProgressChanged?.Invoke($"Started model: {modelId}");
             _activeModel = model;
             if (_activeModel != null)
@@ -123,10 +134,12 @@ namespace sample_azure_ai_foundry_local_chat.Models
             {
 
                 var builder = Kernel.CreateBuilder();
+
                 builder.AddOpenAIChatCompletion(
                     _activeModel.ModelId,
                     _manager.Endpoint,
-                    "unused"
+                    "unused",
+                    httpClient: _httpClient
                 );
                 var kernel = builder.Build();
                 var chat = kernel.GetRequiredService<IChatCompletionService>();
@@ -162,6 +175,7 @@ namespace sample_azure_ai_foundry_local_chat.Models
                     await _manager.DisposeAsync();
                     _manager = null;
                 }
+                _httpClient.Dispose();
                 _disposed = true;
             }
         }
