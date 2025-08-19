@@ -8,6 +8,7 @@ using Microsoft.SemanticKernel;
 using Microsoft.SemanticKernel.Connectors.OpenAI;
 using Microsoft.SemanticKernel.ChatCompletion;
 using Microsoft.Extensions.Configuration;
+using System.Net.Http;
 using Microsoft.SemanticKernel.Data;
 using Microsoft.SemanticKernel.Plugins.Web.Google;
 using Microsoft.SemanticKernel.PromptTemplates.Handlebars;
@@ -35,12 +36,23 @@ namespace sample_azure_ai_foundry_local_chat.Models
 
         private readonly IConfiguration configuration;
         private ChatHistory _history = new ChatHistory();
+        private readonly HttpClient _httpClient; // Reused HttpClient for the app lifetime
         // システムプロンプトをチャット履歴に一度だけ付加するためのフラグ
         private bool _systemPromptAddedToHistory;
+
+        // Using 0 as a sentinel value meaning "no timeout" for config-driven timeouts.
+        private const int INFINITE_TIMEOUT_SECONDS = 0;
 
         public ChatModel(IConfiguration configuration)
         {
             this.configuration = configuration;
+
+            // Initialize a single HttpClient instance to be reused
+            var requestTimeoutSeconds = configuration.GetValue<int>("OpenAI:RequestTimeoutSeconds", INFINITE_TIMEOUT_SECONDS);
+            _httpClient = new HttpClient
+            {
+                Timeout = requestTimeoutSeconds > INFINITE_TIMEOUT_SECONDS ? TimeSpan.FromSeconds(requestTimeoutSeconds) : Timeout.InfiniteTimeSpan
+            };
         }
 
         private async Task EnsureManagerInitializedAsync()
@@ -86,7 +98,9 @@ namespace sample_azure_ai_foundry_local_chat.Models
                 }
                 ProgressChanged?.Invoke("Download complete. Loading model...");
             }
-            var model = await _manager.LoadModelAsync(modelId, TimeSpan.FromSeconds(60), CancellationToken.None);
+            // Extend load timeout (configurable)
+            var loadTimeoutSeconds = configuration.GetValue<int>("Foundry:LoadModelTimeoutSeconds", 600);
+            var model = await _manager.LoadModelAsync(modelId, TimeSpan.FromSeconds(loadTimeoutSeconds), CancellationToken.None);
             ProgressChanged?.Invoke($"Started model: {modelId}");
             _activeModel = model;
             if (_activeModel != null)
@@ -131,10 +145,12 @@ namespace sample_azure_ai_foundry_local_chat.Models
             try
             {
                 var builder = Kernel.CreateBuilder();
+
                 builder.AddOpenAIChatCompletion(
                     _activeModel.ModelId,
                     _manager.Endpoint,
-                    "unused"
+                    "unused",
+                    httpClient: _httpClient
                 );
                 var kernel = builder.Build();
 
@@ -238,6 +254,7 @@ Include citations to the relevant information where it is referenced in the resp
                     await _manager.DisposeAsync();
                     _manager = null;
                 }
+                _httpClient.Dispose();
                 _disposed = true;
             }
         }
