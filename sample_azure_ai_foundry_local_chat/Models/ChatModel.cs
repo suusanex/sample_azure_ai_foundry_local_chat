@@ -8,6 +8,8 @@ using Microsoft.SemanticKernel;
 using Microsoft.SemanticKernel.Connectors.OpenAI;
 using Microsoft.SemanticKernel.ChatCompletion;
 using Microsoft.Extensions.Configuration;
+using Microsoft.SemanticKernel.Data;
+using Microsoft.SemanticKernel.Plugins.Web.Google;
 
 namespace sample_azure_ai_foundry_local_chat.Models
 {
@@ -101,7 +103,7 @@ namespace sample_azure_ai_foundry_local_chat.Models
             }
         }
 
-        public async Task SendAsync(string input)
+        public async Task SendAsync(string input, bool useWebSearch = false)
         {
             await EnsureManagerInitializedAsync();
             if (string.IsNullOrEmpty(input))
@@ -121,7 +123,6 @@ namespace sample_azure_ai_foundry_local_chat.Models
             }
             try
             {
-
                 var builder = Kernel.CreateBuilder();
                 builder.AddOpenAIChatCompletion(
                     _activeModel.ModelId,
@@ -130,6 +131,26 @@ namespace sample_azure_ai_foundry_local_chat.Models
                 );
                 var kernel = builder.Build();
                 var chat = kernel.GetRequiredService<IChatCompletionService>();
+
+                // Optionally enrich with web search context using Semantic Kernel GoogleTextSearch (static reference)
+                if (useWebSearch)
+                {
+#pragma warning disable SKEXP0050
+                    var searchContext = await BuildGoogleSearchContextAsync(input);
+#pragma warning restore SKEXP0050
+                    if (!string.IsNullOrWhiteSpace(searchContext))
+                    {
+                        _history.AddSystemMessage(
+                            "You have access to recent web search results. Use them to answer accurately and cite sources by number when helpful.\n" +
+                            searchContext
+                        );
+                    }
+                    else
+                    {
+                        ResultChanged?.Invoke("[Web検索の結果が取得できませんでした。通常の応答を生成します]\n");
+                    }
+                }
+
                 _history.AddUserMessage(input);
                 int maxTokens = configuration.GetValue<int>("OpenAI:MaxTokens", 4096);
                 var settings = new OpenAIPromptExecutionSettings
@@ -152,6 +173,42 @@ namespace sample_azure_ai_foundry_local_chat.Models
                 ResultChanged?.Invoke($"Error generating response: {ex.Message}\n");
             }
         }
+
+#pragma warning disable SKEXP0050
+        private async Task<string?> BuildGoogleSearchContextAsync(string query)
+        {
+            try
+            {
+                var apiKey = configuration["Search:Google:ApiKey"];
+                var searchEngineId = configuration["Search:Google:SearchEngineId"];
+                int top = configuration.GetValue<int>("Search:Google:MaxResults", 5);
+
+                if (string.IsNullOrWhiteSpace(apiKey) || string.IsNullOrWhiteSpace(searchEngineId))
+                {
+                    ResultChanged?.Invoke("[Google検索の設定が見つかりません。appsettings.json を確認してください]\n");
+                    return null;
+                }
+
+                var textSearch = new GoogleTextSearch(searchEngineId: searchEngineId, apiKey: apiKey);
+                KernelSearchResults<string> results = await textSearch.SearchAsync(query, new() { Top = top });
+
+                var lines = new List<string> { "[Web Search Results]" };
+                int idx = 1;
+                await foreach (string snippet in results.Results)
+                {
+                    lines.Add($"{idx}. {snippet}");
+                    idx++;
+                }
+                lines.Add(string.Empty);
+                return idx > 1 ? string.Join("\n\n", lines) : null;
+            }
+            catch (Exception ex)
+            {
+                ResultChanged?.Invoke($"[Web検索エラー] {ex.Message}\n");
+                return null;
+            }
+        }
+#pragma warning restore SKEXP0050
 
         public async ValueTask DisposeAsync()
         {

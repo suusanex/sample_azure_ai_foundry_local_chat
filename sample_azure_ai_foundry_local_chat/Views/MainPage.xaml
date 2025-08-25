@@ -42,6 +42,11 @@
             </controls:DockPanel>
             <TextBlock controls:DockPanel.Dock="Top" 
                        Margin="5" Text="チャットの内容を入力したら、Sendボタンを押してください。ただしモデルのロードが終わるまではSendボタンは有効になりません。"></TextBlock>
+            <!-- Web検索トグル -->
+            <CheckBox controls:DockPanel.Dock="Top"
+                      Margin="16"
+                      IsChecked="{x:Bind ViewModel.UseWebSearch, Mode=TwoWay}"
+                      Content="Web検索を使う (Google)"/>
             <Button controls:DockPanel.Dock="Bottom"
                     Margin="16"
                     Command="{x:Bind ViewModel.SendCommand}"

@@ -51,7 +51,11 @@ public partial class App : Application
         UseContentRoot(AppContext.BaseDirectory).
         ConfigureAppConfiguration((context, config) =>
         {
-            config.AddJsonFile("appsettings.json", optional: true, reloadOnChange: true);
+            // appsettings.json を読み込み、User Secrets と環境変数で上書き可能にする
+            config
+                .AddJsonFile("appsettings.json", optional: true, reloadOnChange: true)
+                .AddUserSecrets<App>(optional: true)
+                .AddEnvironmentVariables();
         }).
         ConfigureServices((context, services) =>
         {
