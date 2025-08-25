@@ -8,6 +8,9 @@ using Microsoft.SemanticKernel;
 using Microsoft.SemanticKernel.Connectors.OpenAI;
 using Microsoft.SemanticKernel.ChatCompletion;
 using Microsoft.Extensions.Configuration;
+using Microsoft.SemanticKernel.Data;
+using Microsoft.SemanticKernel.Plugins.Web.Google;
+using Microsoft.SemanticKernel.PromptTemplates.Handlebars;
 
 namespace sample_azure_ai_foundry_local_chat.Models
 {
@@ -101,7 +104,7 @@ namespace sample_azure_ai_foundry_local_chat.Models
             }
         }
 
-        public async Task SendAsync(string input)
+        public async Task SendAsync(string input, bool useWebSearch = false)
         {
             await EnsureManagerInitializedAsync();
             if (string.IsNullOrEmpty(input))
@@ -121,7 +124,6 @@ namespace sample_azure_ai_foundry_local_chat.Models
             }
             try
             {
-
                 var builder = Kernel.CreateBuilder();
                 builder.AddOpenAIChatCompletion(
                     _activeModel.ModelId,
@@ -129,23 +131,73 @@ namespace sample_azure_ai_foundry_local_chat.Models
                     "unused"
                 );
                 var kernel = builder.Build();
-                var chat = kernel.GetRequiredService<IChatCompletionService>();
-                _history.AddUserMessage(input);
-                int maxTokens = configuration.GetValue<int>("OpenAI:MaxTokens", 4096);
-                var settings = new OpenAIPromptExecutionSettings
+
+                if (useWebSearch)
                 {
-                    MaxTokens = maxTokens,
-                };
-                ResultChanged?.Invoke("[Start]\n");
-                await foreach (var message in chat.GetStreamingChatMessageContentsAsync(_history, kernel: kernel, executionSettings: settings))
-                {
-                    if (string.IsNullOrEmpty(message.Content))
+                    // Use Text Search plugin (Google) + Handlebars template with citations
+#pragma warning disable SKEXP0050
+                    var apiKey = configuration["Search:Google:ApiKey"];
+                    var searchEngineId = configuration["Search:Google:SearchEngineId"];
+                    if (string.IsNullOrWhiteSpace(apiKey) || string.IsNullOrWhiteSpace(searchEngineId))
                     {
-                        continue;
+                        ResultChanged?.Invoke("[Google検索の設定が見つかりません。User Secrets または appsettings.json を確認してください]\n");
+                        return;
                     }
-                    ResultChanged?.Invoke(message.Content);
+
+                    var textSearch = new GoogleTextSearch(searchEngineId: searchEngineId, apiKey: apiKey);
+                    var searchPlugin = textSearch.CreateWithGetTextSearchResults("SearchPlugin");
+                    kernel.Plugins.Add(searchPlugin);
+
+                    string promptTemplate = """
+{{#with (SearchPlugin-GetTextSearchResults query)}}  
+    {{#each this}}  
+    Name: {{Name}}
+    Value: {{Value}}
+    Link: {{Link}}
+    -----------------
+    {{/each}}  
+{{/with}}  
+
+{{query}}
+
+Include citations to the relevant information where it is referenced in the response.
+""";
+                    int maxTokens = configuration.GetValue<int>("OpenAI:MaxTokens", 4096);
+                    var exec = new OpenAIPromptExecutionSettings { MaxTokens = maxTokens };
+                    var arguments = new KernelArguments(exec) { { "query", input } };
+                    var promptFactory = new HandlebarsPromptTemplateFactory();
+
+                    ResultChanged?.Invoke("[Start]\n");
+                    var response = await kernel.InvokePromptAsync(
+                        promptTemplate,
+                        arguments,
+                        templateFormat: HandlebarsPromptTemplateFactory.HandlebarsTemplateFormat,
+                        promptTemplateFactory: promptFactory
+                    );
+                    ResultChanged?.Invoke(response.ToString());
+                    ResultChanged?.Invoke("\n[End]\n");
+#pragma warning restore SKEXP0050
                 }
-                ResultChanged?.Invoke("\n[End]\n");
+                else
+                {
+                    var chat = kernel.GetRequiredService<IChatCompletionService>();
+                    _history.AddUserMessage(input);
+                    int maxTokens = configuration.GetValue<int>("OpenAI:MaxTokens", 4096);
+                    var settings = new OpenAIPromptExecutionSettings
+                    {
+                        MaxTokens = maxTokens,
+                    };
+                    ResultChanged?.Invoke("[Start]\n");
+                    await foreach (var message in chat.GetStreamingChatMessageContentsAsync(_history, kernel: kernel, executionSettings: settings))
+                    {
+                        if (string.IsNullOrEmpty(message.Content))
+                        {
+                            continue;
+                        }
+                        ResultChanged?.Invoke(message.Content);
+                    }
+                    ResultChanged?.Invoke("\n[End]\n");
+                }
             }
             catch (Exception ex)
             {

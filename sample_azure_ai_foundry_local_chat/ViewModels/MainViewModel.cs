@@ -28,6 +28,9 @@ public partial class MainViewModel : ObservableRecipient
     [ObservableProperty] [NotifyCanExecuteChangedFor(nameof(LoadSelectedModelCommand))] private bool _isEnableLoadModel;
     [ObservableProperty] private string? _progressStr;
 
+    // Web検索のON/OFF
+    [ObservableProperty] private bool _useWebSearch;
+
     // モデル一覧と選択
     [ObservableProperty] private ObservableCollection<ModelItem> _modelList = new();
     [ObservableProperty] private ModelItem? _selectedModel;
@@ -94,8 +97,9 @@ public partial class MainViewModel : ObservableRecipient
         {
             Result += $"\n{Input}\n";
             var input = Input;
+            var useWeb = UseWebSearch; // 現在のトグル状態を取得
             Input = string.Empty; // 入力欄をクリア
-            await _model.SendAsync(input ?? string.Empty);
+            await _model.SendAsync(input ?? string.Empty, useWeb);
         }
         finally
         {

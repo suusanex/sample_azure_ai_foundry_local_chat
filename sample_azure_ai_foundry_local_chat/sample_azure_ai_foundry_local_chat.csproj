@@ -13,6 +13,7 @@
 	<Nullable>enable</Nullable>
 	<UseWinUI>true</UseWinUI>
     <EnableMsixTooling>true</EnableMsixTooling>
+    <UserSecretsId>941d5bb4-b283-4f1c-b072-5333821536c5</UserSecretsId>
   </PropertyGroup>
 
 	<PropertyGroup Condition="'$(Packaged)' != 'true'">
@@ -32,7 +33,9 @@
     <PackageReference Include="CommunityToolkit.WinUI.Controls.Primitives" Version="8.2.250402" />
     <PackageReference Include="Microsoft.AI.Foundry.Local" Version="0.1.0" />
     <PackageReference Include="Microsoft.Extensions.Hosting" Version="9.0.6" />
-    <PackageReference Include="Microsoft.SemanticKernel" Version="1.59.0" />
+    <PackageReference Include="Microsoft.SemanticKernel" Version="1.60.0" />
+    <PackageReference Include="Microsoft.SemanticKernel.Plugins.Web" Version="1.60.0-alpha" />
+    <PackageReference Include="Microsoft.SemanticKernel.PromptTemplates.Handlebars" Version="1.60.0" />
     <PackageReference Include="Microsoft.WindowsAppSDK" Version="1.7.250606001" />
     <PackageReference Include="Microsoft.Xaml.Behaviors.WinUI.Managed" Version="3.0.0" />
     <PackageReference Include="WinUIEx" Version="2.6.0" />
