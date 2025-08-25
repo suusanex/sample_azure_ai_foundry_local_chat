@@ -27,6 +27,7 @@ public partial class MainViewModel : ObservableRecipient
     [ObservableProperty] [NotifyCanExecuteChangedFor(nameof(SendCommand))] private bool _isEnableSend;
     [ObservableProperty] [NotifyCanExecuteChangedFor(nameof(LoadSelectedModelCommand))] private bool _isEnableLoadModel;
     [ObservableProperty] private string? _progressStr;
+    [ObservableProperty] private bool _isWebSearchEnabled;
 
     // モデル一覧と選択
     [ObservableProperty] private ObservableCollection<ModelItem> _modelList = new();
@@ -95,7 +96,7 @@ public partial class MainViewModel : ObservableRecipient
             Result += $"\n{Input}\n";
             var input = Input;
             Input = string.Empty; // 入力欄をクリア
-            await _model.SendAsync(input ?? string.Empty);
+            await _model.SendAsync(input ?? string.Empty, IsWebSearchEnabled);
         }
         finally
         {
