@@ -46,7 +46,8 @@
             <CheckBox controls:DockPanel.Dock="Top"
                       Margin="16"
                       IsChecked="{x:Bind ViewModel.UseWebSearch, Mode=TwoWay}"
-                      Content="Web検索を使う (Google)"/>
+                      ToolTipService.ToolTip="ONのときは検索プラグインを使った単発プロンプトになるため、会話履歴はモデルに渡されません。"
+                      Content="Web検索を使う (Google)（ONのとき会話履歴は使用されません）"/>
             <Button controls:DockPanel.Dock="Bottom"
                     Margin="16"
                     Command="{x:Bind ViewModel.SendCommand}"

@@ -10,6 +10,7 @@ using Microsoft.SemanticKernel.ChatCompletion;
 using Microsoft.Extensions.Configuration;
 using Microsoft.SemanticKernel.Data;
 using Microsoft.SemanticKernel.Plugins.Web.Google;
+using Microsoft.SemanticKernel.PromptTemplates.Handlebars;
 
 namespace sample_azure_ai_foundry_local_chat.Models
 {
@@ -130,85 +131,79 @@ namespace sample_azure_ai_foundry_local_chat.Models
                     "unused"
                 );
                 var kernel = builder.Build();
-                var chat = kernel.GetRequiredService<IChatCompletionService>();
 
-                // Optionally enrich with web search context using Semantic Kernel GoogleTextSearch (static reference)
                 if (useWebSearch)
                 {
+                    // Use Text Search plugin (Google) + Handlebars template with citations
 #pragma warning disable SKEXP0050
-                    var searchContext = await BuildGoogleSearchContextAsync(input);
-#pragma warning restore SKEXP0050
-                    if (!string.IsNullOrWhiteSpace(searchContext))
+                    var apiKey = configuration["Search:Google:ApiKey"];
+                    var searchEngineId = configuration["Search:Google:SearchEngineId"];
+                    if (string.IsNullOrWhiteSpace(apiKey) || string.IsNullOrWhiteSpace(searchEngineId))
                     {
-                        _history.AddSystemMessage(
-                            "You have access to recent web search results. Use them to answer accurately and cite sources by number when helpful.\n" +
-                            searchContext
-                        );
+                        ResultChanged?.Invoke("[Google検索の設定が見つかりません。User Secrets または appsettings.json を確認してください]\n");
+                        return;
                     }
-                    else
-                    {
-                        ResultChanged?.Invoke("[Web検索の結果が取得できませんでした。通常の応答を生成します]\n");
-                    }
-                }
 
-                _history.AddUserMessage(input);
-                int maxTokens = configuration.GetValue<int>("OpenAI:MaxTokens", 4096);
-                var settings = new OpenAIPromptExecutionSettings
-                {
-                    MaxTokens = maxTokens,
-                };
-                ResultChanged?.Invoke("[Start]\n");
-                await foreach (var message in chat.GetStreamingChatMessageContentsAsync(_history, kernel: kernel, executionSettings: settings))
-                {
-                    if (string.IsNullOrEmpty(message.Content))
-                    {
-                        continue;
-                    }
-                    ResultChanged?.Invoke(message.Content);
+                    var textSearch = new GoogleTextSearch(searchEngineId: searchEngineId, apiKey: apiKey);
+                    var searchPlugin = textSearch.CreateWithGetTextSearchResults("SearchPlugin");
+                    kernel.Plugins.Add(searchPlugin);
+
+                    string promptTemplate = """
+{{#with (SearchPlugin-GetTextSearchResults query)}}  
+    {{#each this}}  
+    Name: {{Name}}
+    Value: {{Value}}
+    Link: {{Link}}
+    -----------------
+    {{/each}}  
+{{/with}}  
+
+{{query}}
+
+Include citations to the relevant information where it is referenced in the response.
+""";
+                    int maxTokens = configuration.GetValue<int>("OpenAI:MaxTokens", 4096);
+                    var exec = new OpenAIPromptExecutionSettings { MaxTokens = maxTokens };
+                    var arguments = new KernelArguments(exec) { { "query", input } };
+                    var promptFactory = new HandlebarsPromptTemplateFactory();
+
+                    ResultChanged?.Invoke("[Start]\n");
+                    var response = await kernel.InvokePromptAsync(
+                        promptTemplate,
+                        arguments,
+                        templateFormat: HandlebarsPromptTemplateFactory.HandlebarsTemplateFormat,
+                        promptTemplateFactory: promptFactory
+                    );
+                    ResultChanged?.Invoke(response.ToString());
+                    ResultChanged?.Invoke("\n[End]\n");
+#pragma warning restore SKEXP0050
                 }
-                ResultChanged?.Invoke("\n[End]\n");
+                else
+                {
+                    var chat = kernel.GetRequiredService<IChatCompletionService>();
+                    _history.AddUserMessage(input);
+                    int maxTokens = configuration.GetValue<int>("OpenAI:MaxTokens", 4096);
+                    var settings = new OpenAIPromptExecutionSettings
+                    {
+                        MaxTokens = maxTokens,
+                    };
+                    ResultChanged?.Invoke("[Start]\n");
+                    await foreach (var message in chat.GetStreamingChatMessageContentsAsync(_history, kernel: kernel, executionSettings: settings))
+                    {
+                        if (string.IsNullOrEmpty(message.Content))
+                        {
+                            continue;
+                        }
+                        ResultChanged?.Invoke(message.Content);
+                    }
+                    ResultChanged?.Invoke("\n[End]\n");
+                }
             }
             catch (Exception ex)
             {
                 ResultChanged?.Invoke($"Error generating response: {ex.Message}\n");
             }
         }
-
-#pragma warning disable SKEXP0050
-        private async Task<string?> BuildGoogleSearchContextAsync(string query)
-        {
-            try
-            {
-                var apiKey = configuration["Search:Google:ApiKey"];
-                var searchEngineId = configuration["Search:Google:SearchEngineId"];
-                int top = configuration.GetValue<int>("Search:Google:MaxResults", 5);
-
-                if (string.IsNullOrWhiteSpace(apiKey) || string.IsNullOrWhiteSpace(searchEngineId))
-                {
-                    ResultChanged?.Invoke("[Google検索の設定が見つかりません。appsettings.json を確認してください]\n");
-                    return null;
-                }
-
-                var textSearch = new GoogleTextSearch(searchEngineId: searchEngineId, apiKey: apiKey);
-                KernelSearchResults<string> results = await textSearch.SearchAsync(query, new() { Top = top });
-
-                var lines = new List<string> { "[Web Search Results]" };
-                int idx = 1;
-                await foreach (string snippet in results.Results)
-                {
-                    lines.Add($"{idx}. {snippet}");
-                    idx++;
-                }
-                lines.Add(string.Empty);
-                return idx > 1 ? string.Join("\n\n", lines) : null;
-            }
-            catch (Exception ex)
-            {
-                ResultChanged?.Invoke($"[Web検索エラー] {ex.Message}\n");
-                return null;
-            }
-        }
-#pragma warning restore SKEXP0050
 
         public async ValueTask DisposeAsync()
         {
