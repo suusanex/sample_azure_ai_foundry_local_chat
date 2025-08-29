@@ -35,6 +35,8 @@ namespace sample_azure_ai_foundry_local_chat.Models
 
         private readonly IConfiguration configuration;
         private ChatHistory _history = new ChatHistory();
+        // システムプロンプトをチャット履歴に一度だけ付加するためのフラグ
+        private bool _systemPromptAddedToHistory;
 
         public ChatModel(IConfiguration configuration)
         {
@@ -91,6 +93,10 @@ namespace sample_azure_ai_foundry_local_chat.Models
             {
                 ProgressChanged?.Invoke($"ActiveModel type: {_activeModel.DisplayName}");
             }
+
+            // 新しくモデルをロードした場合は会話履歴とシステムプロンプト追加フラグをリセット
+            _history = new ChatHistory();
+            _systemPromptAddedToHistory = false;
         }
 
         public async Task RestartFoundryServiceAsync()
@@ -132,6 +138,9 @@ namespace sample_azure_ai_foundry_local_chat.Models
                 );
                 var kernel = builder.Build();
 
+                // appsettings.json のシステムプロンプト（自然言語）を取得
+                var systemPrompt = configuration["OpenAI:SystemPrompt"];
+
                 if (useWebSearch)
                 {
                     // Use Text Search plugin (Google) + Handlebars template with citations
@@ -164,6 +173,13 @@ Include citations to the relevant information where it is referenced in the resp
 """;
                     int maxTokens = configuration.GetValue<int>("OpenAI:MaxTokens", 4096);
                     var exec = new OpenAIPromptExecutionSettings { MaxTokens = maxTokens };
+
+                    // システムプロンプトは LLM の system ロールとして渡す
+                    if (!string.IsNullOrWhiteSpace(systemPrompt))
+                    {
+                        exec.ChatSystemPrompt = systemPrompt;
+                    }
+
                     var arguments = new KernelArguments(exec) { { "query", input } };
                     var promptFactory = new HandlebarsPromptTemplateFactory();
 
@@ -181,6 +197,14 @@ Include citations to the relevant information where it is referenced in the resp
                 else
                 {
                     var chat = kernel.GetRequiredService<IChatCompletionService>();
+
+                    // システムプロンプトを一度だけ履歴に追加
+                    if (!_systemPromptAddedToHistory && !string.IsNullOrWhiteSpace(systemPrompt))
+                    {
+                        _history.AddSystemMessage(systemPrompt);
+                        _systemPromptAddedToHistory = true;
+                    }
+
                     _history.AddUserMessage(input);
                     int maxTokens = configuration.GetValue<int>("OpenAI:MaxTokens", 4096);
                     var settings = new OpenAIPromptExecutionSettings
